@@ -1,10 +1,11 @@
 from flask import Flask, request, jsonify, send_file
-import hashlib, json, os
+import hashlib, json, os, secrets
+from werkzeug.exceptions import BadRequest
 
 app = Flask(__name__)
 FILE = "passwords.json"
 
-# Load and save
+# --- Utility functions ---
 def load_data():
     if not os.path.exists(FILE):
         return {}
@@ -15,39 +16,58 @@ def save_data(data):
     with open(FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+def hash_password(password, salt=None):
+    if not salt:
+        salt = secrets.token_hex(16)  # unique salt per password
+    hashed = hashlib.sha256((salt + password).encode()).hexdigest()
+    return {"salt": salt, "hash": hashed}
 
-# Serve HTML
+# --- Routes ---
 @app.route("/")
 def index():
     return send_file("index.html")
 
-# Add password
 @app.route("/add", methods=["POST"])
 def add_password():
-    data = request.get_json()
-    site = data.get("site")
-    username = data.get("username")
-    password = data.get("password")
+    try:
+        data = request.get_json(force=True)
+        site = data.get("site")
+        username = data.get("username")
+        password = data.get("password")
 
-    if not site or not username or not password:
-        return "❌ All fields are required."
+        if not site or not username or not password:
+            raise BadRequest("❌ All fields are required.")
 
-    passwords = load_data()
-    passwords[site] = {"username": username, "password": hash_password(password)}
-    save_data(passwords)
-    return "✅ Password saved successfully!"
+        passwords = load_data()
+        passwords[site] = {
+            "username": username,
+            **hash_password(password)
+        }
+        save_data(passwords)
+        return jsonify({"status": "success", "message": "✅ Password saved securely!"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
 
-# View password
 @app.route("/view")
 def view_password():
     site = request.args.get("site")
     passwords = load_data()
     if site in passwords:
         info = passwords[site]
-        return f"Site: {site}\nUsername: {info['username']}\nHashed Password: {info['password']}"
-    return "❌ No data found for this site."
+        return jsonify({
+            "site": site,
+            "username": info["username"],
+            "hashed_password": info["hash"],
+            "salt": info["salt"]
+        })
+    return jsonify({"status": "error", "message": "❌ No data found for this site."}), 404
+
+# --- Security best practices ---
+# 1. Always use HTTPS in production.
+# 2. Store secrets (like FILE path) in environment variables.
+# 3. Consider encrypting the JSON file with a master key.
+# 4. Use proper authentication before allowing add/view routes.
+# 5. Deploy behind a reverse proxy (e.g., Nginx) with rate limiting.
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False, host="0.0.0.0", port=5000)
