@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, send_file
-import hashlib, json, os, secrets
+import hashlib, json, os, secrets, time
 from werkzeug.exceptions import BadRequest
+from tqdm import tqdm  # for animation
 
 app = Flask(__name__)
 FILE = "passwords.json"
@@ -22,6 +23,10 @@ def hash_password(password, salt=None):
     hashed = hashlib.sha256((salt + password).encode()).hexdigest()
     return {"salt": salt, "hash": hashed}
 
+def animate_action(action="Processing"):
+    for _ in tqdm(range(30), desc=action, ncols=70, ascii=True):
+        time.sleep(0.02)
+
 # --- Routes ---
 @app.route("/")
 def index():
@@ -38,6 +43,8 @@ def add_password():
         if not site or not username or not password:
             raise BadRequest("❌ All fields are required.")
 
+        animate_action("🔒 Saving Password")  # animation
+
         passwords = load_data()
         passwords[site] = {
             "username": username,
@@ -51,6 +58,7 @@ def add_password():
 @app.route("/view")
 def view_password():
     site = request.args.get("site")
+    animate_action("🔍 Fetching Data")  # animation
     passwords = load_data()
     if site in passwords:
         info = passwords[site]
